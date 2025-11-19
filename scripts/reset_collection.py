@@ -265,7 +265,7 @@ def main():
         print_status("Servers not running. Please start them:", "error")
         print("  Terminal 1: make oidc")
         print("  Terminal 2: make run")
-        print("\nThen run: make seed-acme")
+        print("\nThen run: make seed-restricted")
         return 1
     
     # Get JWT token
@@ -282,11 +282,11 @@ def main():
         print_status(f"Failed to get token: {e}", "error")
         return 1
     
-    # Seed data
-    print_status("Seeding fresh data...")
+    # Seed data using seed_restricted.py (includes ACL testing data)
+    print_status("Seeding fresh data with ACL test documents...")
     print()
     result = os.system(
-        f"{sys.executable} scripts/seed.py --url http://localhost:8080 --token {jwt_token} --tenant acme"
+        f"{sys.executable} scripts/seed_restricted.py"
     )
     
     if result == 0:

@@ -124,9 +124,6 @@ Once both servers are running, seed the database:
 # Seed with restricted documents (recommended)
 make seed-restricted
 
-# Or seed with full demo data
-make seed-acme
-
 # Or reset collection and seed fresh data
 make reset-collection
 ```
@@ -134,11 +131,8 @@ make reset-collection
 #### 5. Verify Everything Works
 
 ```bash
-# Run comprehensive tests
+# Run comprehensive tests (auto-starts servers if needed)
 make test-comprehensive
-
-# Or run full integration tests
-make test-full
 
 # Or verify what's in the database
 make verify-seed
@@ -576,12 +570,15 @@ User can see documents if:
     │                              │                              │  [8d] Apply ACL Filter
     │                              │                              │                  │
     │                              │  [ERROR: Connection fails]   │                  │
+    │                              │<───────────────────────────────────────────────┤
     │                              │  → HTTP 500                  │                  │
     │                              │                              │                  │
-    │                              │  [ERROR: Collection missing] │                  │
+    │                              │  [ERROR: Collection missing]  │                  │
+    │                              │<───────────────────────────────────────────────┤
     │                              │  → HTTP 500                  │                  │
     │                              │                              │                  │
     │                              │  [ERROR: Embedding not configured]
+    │                              │<───────────────────────────────────────────────┤
     │                              │  → Auto-retry without vector  │                  │
     │                              │                              │                  │
     │                              │  [8e] Return Documents        │                  │
@@ -623,6 +620,12 @@ User can see documents if:
 │         │         │              │         │             │         │          │
 │         │         │              │────────>│             │         │          │
 │         │         │              │<────────│             │         │          │
+│         │         │              │         │             │         │          │
+│         │         │              │────────>│             │         │          │
+│         │         │              │<────────│             │         │          │
+│         │         │              │         │             │         │          │
+│         │         │              │────────>│             │         │          │
+│         │         │              │<────────│             │         │          │
 └─────────┘         └──────────────┘         └─────────────┘         └──────────┘
    🔵                    🟡                        🟢                      🟣
 
@@ -640,9 +643,9 @@ Communication:
 - **Authorization errors** (403): Tenant mismatch → 🟡 returns 403 to 🔵
 - **Rate limit errors** (429): Too many requests → 🟡 returns 429 to 🔵
 - **Validation errors** (422): Invalid request format → 🟡 returns 422 to 🔵
-- **OIDC errors** (503): JWKS fetch fails → 🟡 returns 503 to 🔵
-- **Astra DB errors** (500): Connection/collection/query fails → 🟡 returns 500 to 🔵
-- **Embedding service fallback**: If embedding not configured, 🟡 auto-retries without vectorization
+- **OIDC errors** (503): JWKS fetch fails → 🟢 returns error to 🟡 → 🟡 returns 503 to 🔵
+- **Astra DB errors** (500): Connection/collection/query fails → 🟣 returns error to 🟡 → 🟡 returns 500 to 🔵
+- **Embedding service fallback**: If embedding not configured, 🟣 returns error to 🟡 → 🟡 auto-retries without vectorization
 
 ### Key Points
 
@@ -861,10 +864,9 @@ This means embeddings are generated and stored automatically - no manual embeddi
 2. **Code Implementation**: 
    - `app/main.py`: All documents automatically include `$vectorize` during ingest
    - `app/main.py`: Queries use `{"$vectorize": "query text"}` for vector similarity search
-   - `scripts/seed.py`: All seeded documents include `$vectorize` field
+   - `scripts/seed_restricted.py` and `scripts/demo.py`: All seeded documents include `$vectorize` field
 3. **Testing Scripts**: 
-   - `scripts/setup_and_test_vector.py`: Comprehensive setup and test script
-   - `scripts/test_vector_search.py`: End-to-end vector search tests
+   - `scripts/setup_and_test_vector.py`: Comprehensive setup and test script (includes vector search testing)
    - `make setup-vector`: Easy command to test vector search
 
 ### Enable Embedding Service in Astra DB UI
@@ -915,8 +917,8 @@ This will:
 ### Test Vector Search
 
 ```bash
-# Test vector search setup
-make test-vector
+# Setup and test vector search
+make setup-vector
 
 # Or reset collection and test
 make reset-collection
@@ -1046,14 +1048,11 @@ Tests include:
 ### Integration Tests
 
 ```bash
-# Run full integration tests
-make test-full
-
-# Run comprehensive application tests
+# Run comprehensive application tests (auto-starts servers if needed)
 make test-comprehensive
 
-# Test vector search functionality
-make test-vector
+# Setup and test vector search
+make setup-vector
 ```
 
 ### Manual Testing
@@ -1105,12 +1104,10 @@ This directory contains utility scripts for the Secure Multi-Tenant RAG demo.
   - Usage: `make oidc`
 
 ### Data Seeding
-- **`seed.py`** - Generic seed script for demo data
-  - Usage: `make seed TOKEN=... TENANT=...`
-- **`seed_acme_data.py`** - Seed realistic Acme company data
-  - Usage: `make seed-acme`
-- **`seed_restricted.py`** - Seed documents with restricted visibility and ACLs
+- **`seed_restricted.py`** - Seed documents with restricted visibility and ACLs (for ACL testing)
   - Usage: `make seed-restricted`
+- **`demo.py`** - Main demo script (self-contained, seeds its own demo data)
+  - Usage: `make demo`
 - **`verify_seed.py`** - Verify documents in database
   - Usage: `make verify-seed`
 
@@ -1119,15 +1116,9 @@ This directory contains utility scripts for the Secure Multi-Tenant RAG demo.
   - Usage: `make reset-collection`
 
 ### Testing
-- **`test_full.py`** - Full integration tests
-  - Usage: `make test-full`
-- **`test_and_fix.py`** - Comprehensive application tests with auto-fix
+- **`test_and_fix.py`** - Comprehensive application tests with auto-fix (auto-starts servers if needed)
   - Usage: `make test-comprehensive`
-- **`test_vector_search.py`** - Vector search functionality tests
-  - Usage: `make test-vector`
-
-### Vector Search
-- **`setup_and_test_vector.py`** - Setup vector-enabled collection and test
+- **`setup_and_test_vector.py`** - Setup vector-enabled collection and test vector search
   - Usage: `make setup-vector`
 - **`demo.py`** - Complete interactive demo
   - Usage: `make demo`
@@ -1138,15 +1129,12 @@ This directory contains utility scripts for the Secure Multi-Tenant RAG demo.
 make setup          # Create venv and install dependencies
 make run            # Start main API server
 make oidc           # Start OIDC server
-make test           # Run unit tests
-make test-full      # Run full integration tests
-make test-comprehensive  # Run comprehensive application tests
+make test           # Run unit tests (pytest)
+make test-comprehensive  # Run comprehensive application tests (auto-starts servers)
 make seed-restricted     # Seed restricted documents with ACLs
-make seed-acme          # Seed full demo data
 make reset-collection   # Delete and recreate collection, then seed
 make verify-seed        # Verify documents in database
 make setup-vector       # Setup and test vector search
-make test-vector        # Test vector search functionality
 make demo               # Run interactive demo
 ```
 
@@ -1466,15 +1454,11 @@ make reset-collection
 │   └── config.py        # Configuration
 ├── scripts/
 │   ├── mock_oidc.py          # Mock OIDC provider
-│   ├── seed.py                # Generic seed script
-│   ├── seed_acme_data.py      # Acme demo data seeding
-│   ├── seed_restricted.py     # Restricted documents seeding
+│   ├── seed_restricted.py     # Restricted documents seeding (ACL testing)
 │   ├── verify_seed.py         # Verify database contents
 │   ├── reset_collection.py    # Collection management
-│   ├── test_full.py           # Full integration tests
-│   ├── test_and_fix.py        # Comprehensive tests
-│   ├── setup_and_test_vector.py  # Vector search setup
-│   ├── test_vector_search.py    # Vector search tests
+│   ├── test_and_fix.py        # Comprehensive tests (auto-fix)
+│   ├── setup_and_test_vector.py  # Vector search setup and test
 │   └── demo.py                    # Interactive demo
 ├── tests/
 │   ├── test_policy.py   # Policy unit tests
