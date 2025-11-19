@@ -10,8 +10,8 @@ A production-quality demo of a multi-tenant RAG (Retrieval-Augmented Generation)
 - [Quick Start](#quick-start)
 - [Setup & Configuration](#setup--configuration)
 - [Data Model](#data-model)
-- [API Endpoints](#api-endpoints)
 - [Information Flow](#information-flow)
+- [API Endpoints](#api-endpoints)
 - [Vector Search](#vector-search)
 - [Demo](#demo)
 - [Testing](#testing)
@@ -312,88 +312,6 @@ All tenants share a single collection (`chunks` by default), with `tenant_id` ad
 3. Restart the application
 
 The application automatically adds `{"tenant_id": user.tenant}` to the filter when using shared mode.
-
-## API Endpoints
-
-### `POST /ingest`
-
-Ingest a document chunk with ACL metadata.
-
-**Request:**
-```json
-{
-  "tenant_id": "acme",
-  "doc_id": "doc-123",
-  "text": "Document content here",
-  "visibility": "public",
-  "allow_teams": ["finance"],
-  "allow_users": [],
-  "deny_users": [],
-  "owner_user_ids": ["alice@acme.com"],
-  "valid_from": "2024-01-01",
-  "valid_to": "2024-12-31"
-}
-```
-
-**Response:**
-```json
-{
-  "status": "success",
-  "collection": "chunks_acme",
-  "doc_id": "doc-123",
-  "result": {...}
-}
-```
-
-**Authorization**: Requires valid JWT token. User's `tenant` claim must match `tenant_id` in request body.
-
-### `POST /query`
-
-Security-trimmed retrieval with vector search.
-
-**Request:**
-```json
-{
-  "question": "What are the key features?"
-}
-```
-
-**Response:**
-```json
-{
-  "matches": [
-    {
-      "doc_id": "doc-123",
-      "visibility": "public"
-    }
-  ],
-  "prompt_context": [
-    {
-      "doc_id": "doc-123",
-      "text": "Document content here"
-    }
-  ]
-}
-```
-
-**Authorization**: Requires valid JWT token. Results are filtered by ACL rules based on user's identity.
-
-### `GET /health`
-
-Health check endpoint.
-
-**Response:**
-```json
-{
-  "status": "ok"
-}
-```
-
-### API Documentation
-
-Once the API server is running, visit:
-- Swagger UI: http://localhost:8080/docs
-- ReDoc: http://localhost:8080/redoc
 
 ## Information Flow
 
@@ -706,6 +624,88 @@ Communication:
 11. 🟡 **Backend Service** returns response to 🔵 **Client**
 
 **Result:** Alice sees budget documents she's allowed to access, ranked by relevance to her question.
+
+## API Endpoints
+
+### `POST /ingest`
+
+Ingest a document chunk with ACL metadata.
+
+**Request:**
+```json
+{
+  "tenant_id": "acme",
+  "doc_id": "doc-123",
+  "text": "Document content here",
+  "visibility": "public",
+  "allow_teams": ["finance"],
+  "allow_users": [],
+  "deny_users": [],
+  "owner_user_ids": ["alice@acme.com"],
+  "valid_from": "2024-01-01",
+  "valid_to": "2024-12-31"
+}
+```
+
+**Response:**
+```json
+{
+  "status": "success",
+  "collection": "chunks_acme",
+  "doc_id": "doc-123",
+  "result": {...}
+}
+```
+
+**Authorization**: Requires valid JWT token. User's `tenant` claim must match `tenant_id` in request body.
+
+### `POST /query`
+
+Security-trimmed retrieval with vector search.
+
+**Request:**
+```json
+{
+  "question": "What are the key features?"
+}
+```
+
+**Response:**
+```json
+{
+  "matches": [
+    {
+      "doc_id": "doc-123",
+      "visibility": "public"
+    }
+  ],
+  "prompt_context": [
+    {
+      "doc_id": "doc-123",
+      "text": "Document content here"
+    }
+  ]
+}
+```
+
+**Authorization**: Requires valid JWT token. Results are filtered by ACL rules based on user's identity.
+
+### `GET /health`
+
+Health check endpoint.
+
+**Response:**
+```json
+{
+  "status": "ok"
+}
+```
+
+### API Documentation
+
+Once the API server is running, visit:
+- Swagger UI: http://localhost:8080/docs
+- ReDoc: http://localhost:8080/redoc
 
 ## Vector Search
 
