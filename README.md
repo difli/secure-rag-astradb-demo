@@ -4,6 +4,8 @@ A production-quality demo of a multi-tenant RAG (Retrieval-Augmented Generation)
 
 **Note**: This is a **demo/prototype** that demonstrates production concepts. See the [Production Readiness](#production-readiness) section for required hardening steps.
 
+**Educational Purpose**: This demo teaches the foundational security concepts that underpin enterprise RAG platforms. See [Relationship to watsonx.data Premium](WATSONX_DATA_RELATIONSHIP.md) for how these concepts relate to IBM watsonx.data Premium and other enterprise platforms.
+
 ## Table of Contents
 
 - [Features](#features)
@@ -19,6 +21,7 @@ A production-quality demo of a multi-tenant RAG (Retrieval-Augmented Generation)
 - [OIDC Provider Options](#oidc-provider-options)
 - [Production Readiness](#production-readiness)
 - [ACL Security Assessment](#acl-security-assessment)
+- [Relationship to watsonx.data Premium](#relationship-to-watsonxdata-premium)
 - [Troubleshooting](#troubleshooting)
 - [Project Structure](#project-structure)
 
@@ -1403,6 +1406,45 @@ The ACL implementation is **secure and production-ready** from a security perspe
 6. ✅ **Testing**: Comprehensive test coverage
 
 **You can deploy this ACL implementation to production with confidence.** The security architecture is sound.
+
+## Relationship to watsonx.data Premium
+
+This demo demonstrates the **fundamental security concepts** that underpin enterprise RAG platforms like IBM watsonx.data Premium. While watsonx.data Premium provides automated, production-ready implementations, the core security principles are the same.
+
+### What This Demo Teaches
+
+This educational demo shows you:
+- ✅ **Multi-tenant isolation** - How tenant boundaries are enforced
+- ✅ **Fine-grained access control** - Per-chunk security policies
+- ✅ **Security-trimmed retrieval** - Filtering results by security rules
+- ✅ **OIDC/JWT authentication** - Industry-standard authentication
+- ✅ **Vector search security** - Secure semantic search
+- ✅ **Rate limiting** - Resource protection
+
+### How It Relates to Enterprise Platforms
+
+**watsonx.data Premium** automates these same concepts:
+- **Automated policy engines** instead of code-based ACL logic
+- **Enterprise IAM integration** (IBM Cloud IAM, Active Directory, etc.)
+- **Centralized governance** with unified access policies
+- **Query rewriting** for transparent security enforcement
+- **Comprehensive audit trails** for compliance
+- **Scalable architecture** for enterprise deployments
+
+### Learn More
+
+For a detailed comparison of this demo's concepts with watsonx.data Premium features, see:
+
+📖 **[Relationship to watsonx.data Premium](WATSONX_DATA_RELATIONSHIP.md)**
+
+This document explains:
+- How each security concept maps to watsonx.data Premium
+- Architecture comparisons
+- Key differences and similarities
+- Learning path from demo to enterprise
+- Universal security principles
+
+**Key Insight**: The basics are the same - the automation and scale differ. Understanding this demo helps you grasp what's happening "under the hood" in enterprise platforms.
 
 ## Troubleshooting
 
