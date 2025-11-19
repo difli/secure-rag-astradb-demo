@@ -4,7 +4,7 @@ A production-quality demo of a multi-tenant RAG (Retrieval-Augmented Generation)
 
 **Note**: This is a **demo/prototype** that demonstrates production concepts. See the [Production Readiness](#production-readiness) section for required hardening steps.
 
-**Educational Purpose**: This demo teaches the foundational security concepts that underpin enterprise RAG platforms. See [Relationship to watsonx.data Premium](WATSONX_DATA_RELATIONSHIP.md) for how these concepts relate to IBM watsonx.data Premium and other enterprise platforms.
+**Educational Purpose**: This demo teaches the foundational security concepts that underpin enterprise RAG platforms. See [Relationship to watsonx.data Premium](WATSONX_DATA_RELATIONSHIP.md) for how these concepts relate to IBM watsonx.data Premium.
 
 ## Table of Contents
 
