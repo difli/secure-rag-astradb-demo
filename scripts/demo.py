@@ -95,8 +95,20 @@ def check_document_exists(token: str, doc_id: str) -> bool:
         resp.raise_for_status()
         
         data = resp.json()
-        all_docs = data.get("matches", []) + data.get("prompt_context", [])
-        found = any(d.get("doc_id") == doc_id for d in all_docs)
+        # Check both matches and prompt_context, but deduplicate by doc_id
+        matches = data.get("matches", [])
+        prompt_context = data.get("prompt_context", [])
+        # Get unique doc_ids from both lists
+        doc_ids = set()
+        for doc in matches:
+            doc_id_val = doc.get("doc_id")
+            if doc_id_val:
+                doc_ids.add(doc_id_val)
+        for doc in prompt_context:
+            doc_id_val = doc.get("doc_id")
+            if doc_id_val:
+                doc_ids.add(doc_id_val)
+        found = doc_id in doc_ids
         
         # Try more specific query if not found
         if not found and doc_id.startswith("demo-"):
@@ -109,8 +121,18 @@ def check_document_exists(token: str, doc_id: str) -> bool:
             )
             if resp2.status_code == 200:
                 data2 = resp2.json()
-                all_docs2 = data2.get("matches", []) + data2.get("prompt_context", [])
-                found = any(d.get("doc_id") == doc_id for d in all_docs2)
+                matches2 = data2.get("matches", [])
+                prompt_context2 = data2.get("prompt_context", [])
+                doc_ids2 = set()
+                for doc in matches2:
+                    doc_id_val = doc.get("doc_id")
+                    if doc_id_val:
+                        doc_ids2.add(doc_id_val)
+                for doc in prompt_context2:
+                    doc_id_val = doc.get("doc_id")
+                    if doc_id_val:
+                        doc_ids2.add(doc_id_val)
+                found = doc_id in doc_ids2
         
         return found
     except requests.exceptions.RequestException:
@@ -298,12 +320,22 @@ def main() -> int:
         success, data, error = query_documents(token, question)
         
         if success and data:
-            all_docs = data.get("matches", []) + data.get("prompt_context", [])
+            # Use prompt_context (has full text) and deduplicate by doc_id
+            prompt_context = data.get("prompt_context", [])
+            matches = data.get("matches", [])
             
-            if all_docs:
+            # Deduplicate: create a dict keyed by doc_id to avoid showing same doc twice
+            unique_docs = {}
+            for doc in prompt_context:
+                doc_id = doc.get("doc_id")
+                if doc_id and doc_id not in unique_docs:
+                    unique_docs[doc_id] = doc
+            
+            if unique_docs:
                 successful_queries += 1
-                print_status(f"Found {len(all_docs)} relevant documents", "ok")
-                for j, doc in enumerate(all_docs[:2], 1):
+                doc_list = list(unique_docs.values())
+                print_status(f"Found {len(doc_list)} relevant documents", "ok")
+                for j, doc in enumerate(doc_list[:2], 1):
                     doc_id = doc.get("doc_id", "N/A")
                     text = doc.get("text", "")[:60]
                     print(f"      {j}. {doc_id}: {text}...")
