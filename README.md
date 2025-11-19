@@ -356,6 +356,12 @@ curl -X POST http://localhost:8080/query \
 - **Backend Service** returns HTTP 401 (Unauthorized)
 - Request stops here
 
+**If JWKS fetch fails:**
+- **Backend Service** cannot fetch public keys from **OIDC Service**
+- **Backend Service** returns HTTP 503 (Service Unavailable)
+- Error message: "Failed to fetch JWKS from {url}"
+- Request stops here
+
 **If validation succeeds:**
 - **Backend Service** extracts user information from token claims:
   - `sub`: User ID (e.g., "alice@acme.com")
@@ -383,8 +389,13 @@ curl -X POST http://localhost:8080/query \
 **What happens:**
 - **Backend Service** checks if user has exceeded rate limit (default: 60 requests/minute)
 - **Backend Service** counts requests per user ID in the last minute (in-memory storage)
-- If limit exceeded: **Backend Service** returns HTTP 429 (Too Many Requests)
-- If within limit: Continues to next step
+
+**If limit exceeded:**
+- **Backend Service** returns HTTP 429 (Too Many Requests)
+- Request stops here
+
+**If within limit:**
+- Continues to next step
 
 ### Step 5: Query Request Processing 📝
 
@@ -448,9 +459,26 @@ User can see documents if:
 5. Applies ACL filter to find matching documents
 6. Returns top 8 most similar documents to **Backend Service**
 
-**Result:** List of documents that match both:
-- Vector similarity (semantically similar to question)
-- ACL rules (user is allowed to see them)
+**Error Handling:**
+
+**If embedding service not configured:**
+- **Astra DB** returns error: `EMBEDDING_SERVICE_NOT_CONFIGURED`
+- **Backend Service** automatically retries query without vectorization (fallback to non-vector search)
+- Query continues with text-based filtering only
+
+**If collection doesn't exist:**
+- **Astra DB** returns error: `COLLECTION_NOT_EXIST`
+- **Backend Service** raises RuntimeError → HTTP 500
+- Error message: "Collection '{name}' does not exist"
+
+**If connection fails:**
+- **Backend Service** raises RuntimeError → HTTP 500
+- Error message: "Astra DB find failed: {error details}"
+
+**If query succeeds:**
+- **Result:** List of documents that match both:
+  - Vector similarity (semantically similar to question)
+  - ACL rules (user is allowed to see them)
 
 ### Step 9: Post-Filtering (Defense in Depth) 🔒
 
@@ -524,9 +552,18 @@ User can see documents if:
     │                              │  [2b] Return Public Keys     │                  │
     │                              │<─────────────────────────────┤                  │
     │                              │                              │                  │
+    │                              │  [ERROR: JWKS fetch fails]   │                  │
+    │                              │  → HTTP 503                 │                  │
+    │                              │                              │                  │
     │                              │  [2c] Validate Token         │                  │
+    │                              │  [ERROR: Invalid token]      │                  │
+    │                              │  → HTTP 401                  │                  │
+    │                              │                              │                  │
     │                              │  [3] Create User Object       │                  │
     │                              │  [4] Check Rate Limit        │                  │
+    │                              │  [ERROR: Rate limit exceeded]│                  │
+    │                              │  → HTTP 429                  │                  │
+    │                              │                              │                  │
     │                              │  [5] Process Query           │                  │
     │                              │  [6] Build ACL Filter        │                  │
     │                              │  [7] Select Collection       │                  │
@@ -537,6 +574,15 @@ User can see documents if:
     │                              │                              │  [8b] Convert to Vector
     │                              │                              │  [8c] Search Similar Docs
     │                              │                              │  [8d] Apply ACL Filter
+    │                              │                              │                  │
+    │                              │  [ERROR: Connection fails]   │                  │
+    │                              │  → HTTP 500                  │                  │
+    │                              │                              │                  │
+    │                              │  [ERROR: Collection missing] │                  │
+    │                              │  → HTTP 500                  │                  │
+    │                              │                              │                  │
+    │                              │  [ERROR: Embedding not configured]
+    │                              │  → Auto-retry without vector  │                  │
     │                              │                              │                  │
     │                              │  [8e] Return Documents        │                  │
     │                              │<───────────────────────────────────────────────┤
@@ -575,16 +621,28 @@ User can see documents if:
 │         │         │              │────────>│             │         │          │
 │         │         │              │<────────│             │         │          │
 │         │         │              │         │             │         │          │
+│         │         │              │────────>│             │         │          │
+│         │         │              │<────────│             │         │          │
 └─────────┘         └──────────────┘         └─────────────┘         └──────────┘
    🔵                    🟡                        🟢                      🟣
 
 Communication:
 - 🔵 → 🟡: HTTP requests with JWT token
+- 🟡 → 🔵: JSON responses (or error: 401, 403, 422, 429, 500, 503)
 - 🟡 → 🟢: JWKS key fetching (HTTP GET)
+- 🟢 → 🟡: Public keys (or error: 503 if fetch fails)
 - 🟡 → 🟣: Vector search queries (HTTP POST with Data API)
-- 🟡 → 🔵: JSON responses
-- 🟣 → 🟡: Query results (JSON)
+- 🟣 → 🟡: Query results (JSON) or errors (connection, collection missing, embedding not configured)
 ```
+
+**Error Flow:**
+- **Authentication errors** (401): Invalid/missing JWT → 🟡 returns 401 to 🔵
+- **Authorization errors** (403): Tenant mismatch → 🟡 returns 403 to 🔵
+- **Rate limit errors** (429): Too many requests → 🟡 returns 429 to 🔵
+- **Validation errors** (422): Invalid request format → 🟡 returns 422 to 🔵
+- **OIDC errors** (503): JWKS fetch fails → 🟡 returns 503 to 🔵
+- **Astra DB errors** (500): Connection/collection/query fails → 🟡 returns 500 to 🔵
+- **Embedding service fallback**: If embedding not configured, 🟡 auto-retries without vectorization
 
 ### Key Points
 
@@ -605,9 +663,12 @@ Communication:
 1. 🔵 **Client** sends request with JWT token
 2. 🟡 **Backend Service** validates token (fetches keys from 🟢 **OIDC Service**)
    - ✅ Token validated → Alice authenticated
+   - ❌ **Error path**: If JWKS fetch fails → HTTP 503 to 🔵 **Client**
+   - ❌ **Error path**: If token invalid → HTTP 401 to 🔵 **Client**
 3. 🟡 **Backend Service** creates User object
 4. 🟡 **Backend Service** checks rate limit
    - ✅ Within limit
+   - ❌ **Error path**: If limit exceeded → HTTP 429 to 🔵 **Client**
 5. 🟡 **Backend Service** processes query: "What is the budget?"
 6. 🟡 **Backend Service** builds ACL filter
    - ✅ Filter: Only acme tenant, public/internal OR (restricted AND finance team)
@@ -618,6 +679,9 @@ Communication:
    - 🟣 **Astra DB** finds semantically similar documents
    - 🟣 **Astra DB** applies ACL filter
    - 🟣 **Astra DB** returns top 8 matches to 🟡 **Backend Service**
+   - ❌ **Error path**: If connection fails → HTTP 500 to 🔵 **Client**
+   - ❌ **Error path**: If collection missing → HTTP 500 to 🔵 **Client**
+   - ⚠️ **Fallback path**: If embedding not configured → Auto-retry without vectorization
 9. 🟡 **Backend Service** post-filters results
    - ✅ Removes any documents Alice shouldn't see
 10. 🟡 **Backend Service** builds response
@@ -659,6 +723,51 @@ Ingest a document chunk with ACL metadata.
 
 **Authorization**: Requires valid JWT token. User's `tenant` claim must match `tenant_id` in request body.
 
+#### Validation and Security Checks
+
+The `/ingest` endpoint performs the following checks in order:
+
+1. **Authentication Check** (HTTP 401 if fails)
+   - JWT token must be present in `Authorization: Bearer <token>` header
+   - Token signature verified (RS256)
+   - Token not expired
+   - Issuer matches `OIDC_ISSUER`
+   - Audience matches `OIDC_AUDIENCE`
+   - Required claims present: `sub`, `tenant`, `teams`
+
+2. **Tenant Match Check** (HTTP 403 if fails)
+   - User's `tenant` (from JWT) must match `request.tenant_id` (from request body)
+   - Prevents cross-tenant data ingestion
+   - Example: User with `tenant: "acme"` cannot ingest documents with `tenant_id: "zen"`
+
+3. **Rate Limiting Check** (HTTP 429 if fails)
+   - Per-user rate limiting (default: 60 requests/minute)
+   - Counts requests per user ID (`user.sub`)
+   - Prevents abuse and DoS attacks
+
+4. **Request Validation** (HTTP 422 if fails)
+   - All required fields present: `tenant_id`, `doc_id`, `text`, `visibility`
+   - Field types validated (strings, arrays, etc.)
+   - `visibility` must be one of: `"public"`, `"internal"`, or `"restricted"`
+   - Optional fields properly formatted (dates in YYYY-MM-DD format)
+
+5. **Collection Existence Check**
+   - Verifies collection exists in Astra DB
+   - Collection name derived from `tenant_id` and `COLLECTION_MODE`
+   - Provides clear error message if collection doesn't exist
+
+6. **Embedding Service Check** (graceful degradation)
+   - Attempts to insert with `$vectorize` for automatic embedding generation
+   - If embedding service not configured, retries without `$vectorize`
+   - Allows system to work in degraded mode (no vector search) until embedding service is configured
+
+**Error Codes:**
+- `401 Unauthorized`: Invalid or missing JWT token
+- `403 Forbidden`: Tenant mismatch (user's tenant ≠ request tenant_id)
+- `422 Unprocessable Entity`: Invalid request format or missing required fields
+- `429 Too Many Requests`: Rate limit exceeded
+- `500 Internal Server Error`: Collection doesn't exist or other server error
+
 ### `POST /query`
 
 Security-trimmed retrieval with vector search.
@@ -689,6 +798,36 @@ Security-trimmed retrieval with vector search.
 ```
 
 **Authorization**: Requires valid JWT token. Results are filtered by ACL rules based on user's identity.
+
+#### Validation and Security Checks
+
+The `/query` endpoint performs the following checks:
+
+1. **Authentication Check** (HTTP 401 if fails)
+   - Same as `/ingest`: JWT token validation
+
+2. **Rate Limiting Check** (HTTP 429 if fails)
+   - Same as `/ingest`: Per-user rate limiting
+
+3. **Request Validation** (HTTP 422 if fails)
+   - `question` field required (string)
+   - Valid JSON format
+
+4. **ACL Filter Building**
+   - Builds security filter based on user's identity (tenant, teams, etc.)
+   - Ensures user only sees documents they're authorized to access
+
+5. **Post-Filtering** (defense in depth)
+   - Additional security checks on results returned from Astra DB
+   - Verifies restricted document permissions
+   - Checks deny lists
+   - Validates date ranges
+
+**Error Codes:**
+- `401 Unauthorized`: Invalid or missing JWT token
+- `422 Unprocessable Entity`: Invalid request format (missing `question` field)
+- `429 Too Many Requests`: Rate limit exceeded
+- `500 Internal Server Error`: Database error or other server error
 
 ### `GET /health`
 
