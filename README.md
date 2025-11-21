@@ -254,6 +254,20 @@ Each document chunk stored in Astra DB contains the following fields:
 | `$vector` | array[float] | Vector embedding (optional, for BYO embeddings) |
 | `$vectorize` | string | Text to vectorize (automatically added during ingest) |
 
+### Collection Structure
+
+The following diagram illustrates the structure of documents stored in the Astra DB collection:
+
+![Astra DB Collection Structure](astradb-collection.png)
+
+**Key Points:**
+
+- **Document Structure**: Each document in the collection represents a text chunk with associated metadata for access control
+- **ACL Fields**: The `visibility`, `allow_teams`, `allow_users`, and related fields enable fine-grained access control at the document level
+- **Vector Search**: Documents include `$vectorize` for automatic embedding generation, enabling semantic similarity search
+- **Multi-Tenant Support**: The `tenant_id` field ensures proper tenant isolation, whether using per-tenant collections or a shared collection with tenant filtering
+- **Security Metadata**: ACL fields (`allow_teams`, `allow_users`, `deny_users`, `owner_user_ids`) are used by the security-trimmed retrieval system to filter query results based on user permissions
+
 ### Visibility Levels
 
 - **`public`**: Accessible to all authenticated users within the tenant
@@ -1087,38 +1101,7 @@ make setup-vector
 
 ### Manual Testing
 
-#### Get a JWT Token
-```bash
-curl -X POST http://localhost:9000/token \
-  -d "sub=alice@acme.com" \
-  -d "tenant=acme" \
-  -d "teams=finance"
-```
-
-#### Ingest a Document
-```bash
-TOKEN="<your-token-from-above>"
-
-curl -X POST http://localhost:8080/ingest \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "tenant_id": "acme",
-    "doc_id": "my-doc-1",
-    "text": "This is a test document",
-    "visibility": "public"
-  }'
-```
-
-#### Query Documents
-```bash
-curl -X POST http://localhost:8080/query \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "question": "What is the budget?"
-  }'
-```
+For detailed API usage examples including token decoding, see the [Manual API Usage](#manual-api-usage) section in the Demo section above.
 
 #### Health Check
 ```bash
