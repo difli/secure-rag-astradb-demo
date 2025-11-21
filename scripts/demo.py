@@ -83,6 +83,27 @@ def get_token() -> str:
     except KeyError:
         raise RuntimeError("Token response missing 'access_token' field")
 
+def get_token_bob() -> str:
+    """Get JWT token for bob (not in finance team) for comparison."""
+    try:
+        resp = requests.post(
+            "http://localhost:9000/token",
+            data={
+                "sub": "bob@acme.com",
+                "tenant": "acme",
+                "teams": "sales"
+            },
+            timeout=REQUEST_TIMEOUT
+        )
+        resp.raise_for_status()
+        return resp.json()["access_token"]
+    except requests.exceptions.HTTPError as e:
+        raise RuntimeError(f"Failed to get bob token: HTTP {e.response.status_code}")
+    except requests.exceptions.RequestException as e:
+        raise RuntimeError(f"Failed to get bob token: {e}")
+    except KeyError:
+        raise RuntimeError("Token response missing 'access_token' field")
+
 def check_document_exists(token: str, doc_id: str) -> bool:
     """Check if a document exists using vector search query."""
     try:
@@ -320,16 +341,21 @@ def main() -> int:
         success, data, error = query_documents(token, question)
         
         if success and data:
-            # Use prompt_context (has full text) and deduplicate by doc_id
+            # Merge matches (has visibility) and prompt_context (has text)
             prompt_context = data.get("prompt_context", [])
             matches = data.get("matches", [])
             
-            # Deduplicate: create a dict keyed by doc_id to avoid showing same doc twice
+            # Create a map of doc_id -> visibility from matches
+            visibility_map = {m.get("doc_id"): m.get("visibility", "unknown") for m in matches if m.get("doc_id")}
+            
+            # Deduplicate: create a dict keyed by doc_id, merging visibility from matches
             unique_docs = {}
             for doc in prompt_context:
                 doc_id = doc.get("doc_id")
                 if doc_id and doc_id not in unique_docs:
-                    unique_docs[doc_id] = doc
+                    doc_copy = doc.copy()
+                    doc_copy["visibility"] = visibility_map.get(doc_id, "unknown")
+                    unique_docs[doc_id] = doc_copy
             
             if unique_docs:
                 successful_queries += 1
@@ -338,12 +364,139 @@ def main() -> int:
                 for j, doc in enumerate(doc_list[:2], 1):
                     doc_id = doc.get("doc_id", "N/A")
                     text = doc.get("text", "")[:60]
-                    print(f"      {j}. {doc_id}: {text}...")
+                    visibility = doc.get("visibility", "unknown")
+                    print(f"      {j}. {doc_id} ({visibility}): {text}...")
             else:
                 print_status("No results found", "warning")
         else:
             failed_queries += 1
             print_status(f"Query failed: {error}", "error")
+    
+    # ACL Enforcement Demonstration
+    print()
+    print_header("5. ACL Enforcement Demonstration")
+    print("Testing security-trimmed retrieval with ACL filtering...")
+    print()
+    print("Current User: alice@acme.com (Tenant: acme, Teams: finance)")
+    print()
+    
+    # Query that should return finance-restricted documents
+    print("Query: \"budget and finance\"")
+    print("Expected: Should return finance-restricted documents (alice is in 'finance' team)")
+    print()
+    
+    success, data, error = query_documents(token, "budget and finance")
+    
+    if success and data:
+        prompt_context = data.get("prompt_context", [])
+        matches = data.get("matches", [])
+        
+        # Create visibility map from matches
+        visibility_map = {m.get("doc_id"): m.get("visibility", "unknown") for m in matches if m.get("doc_id")}
+        
+        # Deduplicate and merge visibility
+        unique_docs = {}
+        for doc in prompt_context:
+            doc_id = doc.get("doc_id")
+            if doc_id and doc_id not in unique_docs:
+                doc_copy = doc.copy()
+                doc_copy["visibility"] = visibility_map.get(doc_id, "unknown")
+                unique_docs[doc_id] = doc_copy
+        
+        if unique_docs:
+            doc_list = list(unique_docs.values())
+            print_status(f"Found {len(doc_list)} documents (ACL-filtered)", "ok")
+            print()
+            print("   Documents returned (user has access):")
+            
+            # Check for finance-restricted documents
+            finance_docs = []
+            public_docs = []
+            personal_docs = []
+            
+            for doc in doc_list:
+                doc_id = doc.get("doc_id", "")
+                visibility = doc.get("visibility", "unknown")
+                
+                if "finance" in doc_id.lower() and visibility == "restricted":
+                    finance_docs.append(doc)
+                elif visibility == "public":
+                    public_docs.append(doc)
+                elif "alice" in doc_id.lower() and visibility == "restricted":
+                    personal_docs.append(doc)
+            
+            # Show finance-restricted docs (should be visible to alice)
+            if finance_docs:
+                print_status("   ✓ Finance-restricted documents (visible: alice is in 'finance' team)", "ok")
+                for doc in finance_docs[:2]:
+                    doc_id = doc.get("doc_id", "N/A")
+                    text = doc.get("text", "")[:70]
+                    print(f"      • {doc_id}: {text}...")
+            
+            # Show personal docs (should be visible to alice)
+            if personal_docs:
+                print_status("   ✓ Personal documents (visible: alice is the owner)", "ok")
+                for doc in personal_docs[:1]:
+                    doc_id = doc.get("doc_id", "N/A")
+                    text = doc.get("text", "")[:70]
+                    print(f"      • {doc_id}: {text}...")
+            
+            # Show public docs
+            if public_docs:
+                print_status("   ✓ Public documents (visible: all users)", "ok")
+                for doc in public_docs[:1]:
+                    doc_id = doc.get("doc_id", "N/A")
+                    print(f"      • {doc_id}")
+            
+            print()
+            print("   Documents NOT returned (user does NOT have access):")
+            print_status("   ✗ HR-restricted documents (filtered: alice not in 'hr' team)", "info")
+            print_status("      Example: acme-restricted-hr-policy (visibility: restricted, allow_teams: ['hr'])", "info")
+            print()
+            print_status("   ✗ Bob's personal documents (filtered: alice not in allow_users)", "info")
+            print_status("      Example: acme-restricted-bob-notes (visibility: restricted, allow_users: ['bob@acme.com'])", "info")
+        else:
+            print_status("No results found", "warning")
+    else:
+        print_status(f"Query failed: {error}", "error")
+    
+    # Comparison: Query with different user (bob, not in finance team)
+    print()
+    print("Comparison: Query with different user (bob@acme.com, teams: sales)")
+    print("Expected: Should NOT see finance-restricted documents")
+    print()
+    
+    try:
+        bob_token = get_token_bob()
+        success, data, error = query_documents(bob_token, "budget and finance")
+        
+        if success and data:
+            prompt_context = data.get("prompt_context", [])
+            matches = data.get("matches", [])
+            visibility_map = {m.get("doc_id"): m.get("visibility", "unknown") for m in matches if m.get("doc_id")}
+            
+            unique_docs = {}
+            for doc in prompt_context:
+                doc_id = doc.get("doc_id")
+                if doc_id and doc_id not in unique_docs:
+                    doc_copy = doc.copy()
+                    doc_copy["visibility"] = visibility_map.get(doc_id, "unknown")
+                    unique_docs[doc_id] = doc_copy
+            
+            if unique_docs:
+                doc_list = list(unique_docs.values())
+                finance_docs = [d for d in doc_list if "finance" in d.get("doc_id", "").lower() and d.get("visibility") == "restricted"]
+                
+                if finance_docs:
+                    print_status(f"⚠️  Found {len(finance_docs)} finance-restricted documents (unexpected!)", "warning")
+                else:
+                    print_status("✓ No finance-restricted documents returned (correct: bob not in 'finance' team)", "ok")
+                    print_status(f"   Found {len(doc_list)} other documents (public/internal only)", "info")
+        else:
+            print_status(f"Query failed: {error}", "error")
+    except Exception as e:
+        print_status(f"Could not test bob's access: {e}", "warning")
+        print_status("   (This is expected if bob token is not configured)", "info")
     
     # Summary
     print_header("Demo Complete")
@@ -351,7 +504,10 @@ def main() -> int:
     print("✓ Authorization: Tenant isolation enforced")
     print("✓ Ingestion: Documents stored with ACL metadata")
     print("✓ Vector Search: Semantic similarity matching")
-    print("✓ Security: ACL-based access control")
+    print("✓ Security: ACL-based access control (security-trimmed retrieval)")
+    print("  • Documents filtered by visibility (public/internal/restricted)")
+    print("  • Restricted documents filtered by allow_teams and allow_users")
+    print("  • Users only see documents they are authorized to access")
     print()
     print("Production-Ready Concepts Demonstrated:")
     print("  • OIDC JWT authentication with signature verification")

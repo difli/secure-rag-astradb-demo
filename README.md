@@ -1009,6 +1009,33 @@ TOKEN=$(curl -s -X POST http://localhost:9000/token \
   -d "sub=alice@acme.com&tenant=acme&teams=finance" | jq -r '.access_token')
 ```
 
+#### Decode Token (View Claims)
+```bash
+# Decode JWT payload to see token contents (claims)
+echo $TOKEN | python3 -c \
+  "import sys, json, base64; \
+   token = sys.stdin.read().strip(); \
+   payload = token.split('.')[1]; \
+   payload += '=' * (4 - len(payload) % 4); \
+   decoded = base64.urlsafe_b64decode(payload); \
+   print(json.dumps(json.loads(decoded), indent=2))"
+```
+
+This will show the token claims:
+```json
+{
+  "sub": "alice@acme.com",
+  "tenant": "acme",
+  "teams": ["finance"],
+  "iss": "http://localhost:9000/",
+  "aud": "api://rag-demo",
+  "exp": 1735689600,
+  "iat": 1704153600
+}
+```
+
+**Note**: JWT tokens use base64url encoding (URL-safe), so use Python's `base64.urlsafe_b64decode()` or convert base64url to standard base64 first.
+
 #### Ingest Document
 ```bash
 curl -X POST http://localhost:8080/ingest \
